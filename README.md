@@ -200,3 +200,317 @@ A simple example tree may now look like this:
 The tree now includes a two attack heavy chain that can be performed after a block.
  - B&,&H : heavy attack after block with any movement
  - !0,0H : heavy attack with no movement
+
+It also now includes a chain that includes a dodge halfway through.
+ - &&,&H : heavy attack after any action with any movement
+	- D0,1H : heavy attack after a dodge with forward movement input
+   - This can indicate a forward dodge or movement after the dodge, exact implementation is up to you
+   - The dodge also indicates that a dodge was performed between this attack and the last attack in the chain since the variable indicates previous actions
+
+The use of ‘!’ in the chain at the top of the tree indicates no actions are performed during the chain, or else the chain is broken and sent back to the start. ‘&’ may be used if any action can be performed during a chain without breaking it. 
+
+#### Can’t use a tree, or don’t want to?
+This may be the case in some environments that make it more difficult to set up a tree, or support the use of a tree, such as in Unreal Engine when wanting to support the Blueprint system for edits to the container. 
+
+Just place the nodes in a key-value paired structure like a dictionary/map. 
+ - Use the key as the key and the data as the value. 
+ - Chain the keys together with a separator character.
+
+![BranchingPath3 drawio](https://github.com/user-attachments/assets/b9494fa3-aebc-4dd3-a0cf-8601fd347e7f)
+
+To now access the orange node the key would be 0,0L_0,0L where ‘_’ is the separator. \
+(Another chain would be 0,1L_0,1H)
+
+All the previous key rules still apply but now a single key includes the leading attacks so that the structure still functions the same. (Key checks will need to account for this by not changing the leading keys, only the end key.)
+
+Key management will need to be implemented to save and reset the storage of the leading keys. \
+Instead of just setting a new active node and checking the connected nodes this needs to be simulated by caching the previous keys then appending the next key before a search.
+
+Input: 0,0L \
+Cache: empty \
+Search: 0,0L
+
+Input: 1,0L \
+Cache: 0,0L \
+Search: 0,0L_1,0L
+
+(Closest match logic does not find key 0,0L_1,0L but finds 0,0L_0,0L so that is saved to cache.)
+
+Input: 1,0H \
+Cache: 0,0L_0,0L \
+Search: 0,0L_0,0L_1,0H
+
+Search logic will also need to be adjusted to factor in the now appended previous keys. 
+
+Check for previous keys + separator + input key \
+If no match: Loop check for previous key + separator + adjusted input key \
+If no match: Check for input key \
+If no match: Check for adjusted input key
+
+(Adjusted input key is the input key with adjustments made when finding the closest match.) \
+(Separator is the chosen character to separate keys in a chain. Above ‘_’ is used)
+
+### Summary
+ - Store attacks and their data with a key associated to them
+ - Use the key to represent the context and/or input needed to play that specific attack
+ - Keep a strict key format to keep keys consistent and easy to dissect for comparison 
+ - Implement logic to find a “closest match” to prevent a null output 
+ - Use special characters for special situations related to each variable in the key
+   - If a variable is optional a character still news to occupy that space
+   - Internally signal the key may match any value in that position
+
+![ActionContainer](https://github.com/user-attachments/assets/bd4eff54-aa7f-4398-9f33-f79a35d4a535)
+
+## Action Queue
+The Action Queue is a data structure that serves to take in actions from the player as they are input, then output them in the same order, when they are allowed. This is to prevent any actions from being skipped or cut short when they should not be. The queue also allows the parent object to view the different actions in the queue based on sections (“queued” - ready to be performed, “current” - the action being performed, and “previous” - actions that have been performed) so that they may be used when determining the context of new actions. 
+
+Actions being “allowed” to play will be determined by game logic but as an example actions may be allowed to play if the current action’s animation is considered done. This logic will be implemented in the parent object and is out of the scope for the queue. The queue is simply a tool for the parent object to manage the character’s actions.
+
+As an example, if the player inputs an attack it will be added to the “queued” section. The parent object will see that there is no current action being played and immediately progress the queue, placing the attack in the “current” slot and play it. The player then inputs another attack while the current one is playing. This attack is added to the queue, but the parent object sees the current action is not done so it waits. When the current attack finishes the parent object sees an action is in the queue and progresses the queue, moving the first attack to the “previous” section and the second to the “current” slot. Then it plays the new current action. This prevents inputs from being ignored and forcing the player to wait for every action to finish before inputting a new action. 
+
+![ActionQueue](https://github.com/user-attachments/assets/0f4d774d-8dbe-4a0f-a152-6683c20af175)
+
+### How Does It Work?
+The action queue is a rather straight forward queue data structure that acts as the name implies, with some modified behavior to keep the queue a fixed size along with the addition of sections within the queue that signify the state of an action within the queue. The “sections”/”states of an action” in the queue are “active”, “queued”, and “previous”. 
+
+Only a single action can be “active” at any given time. This indicates the action is the one currently in use by the character and is probably being played on the character. “Queued” actions are next in line to be active while “previous” actions have already been active.
+
+“preserveSize” sets the size of the “previous” section while “queueSize” sets the size of the “queued” section. “arraySize” and “actionArray” are the entire Action Queue. 
+
+Queue progression would look like this:
+
+![ActionQueueExample1](https://github.com/user-attachments/assets/49eb9117-9672-4ec8-9b59-948286bd1f78)
+
+Items in the queue do not move, rather an index is incremented that indicates the “active” action. Using the active index the other sections of the queue can be calculated simply using the size of those sections.
+
+A critical aspect of the Action Queue must be remembered. The queue is a fixed size and will stay this size as it is used, unless specifically resized using a special function. As the queue progresses and as actions are queued, the size will not change. Instead, indexes will wrap back to the beginning when they leave the bounds of the queue and old actions will be overridden.
+
+So using the fact that the queue is fixed size, the index range of the “previous” section and the “queued” section can be represented as such:
+
+`Previous index range = [active index - 1, active index - “previous” size]` \
+`Queue index range = [active index + 1, active index + “queue” size]`
+
+The size of the array that acts as the Action Queue would be the sum of its parts. \
+`Array size = “queued” size + 1 + “previous” size`
+
+### Keeping Indexes In Range
+Ignoring the different sections of the queue for now let's focus on the “active” slot in the queue. As the queue progresses the index of this slot increases to point to a new “active” action. Eventually this will reach the end of the queue and go out of bounds if not handled properly. 
+
+Using the modulus operator (%), indexes can be kept within the queue as modulus returns the remainder of a division. This just so happens to correspond perfectly with the range of indexes in an array.
+
+So the formula to keep an index in the queue is: \
+newIndex = indexToCheck % queueSize
+
+This is division based so order is important. The size of the queue should be after the index to check. Extra precautions should also be taken to avoid dividing by 0 and properly calculate negative numbers.
+
+```
+FitIndex(index, queueLen)
+    If queueLen == 0
+        Return -1
+    If index < 0 
+        Return queueLen - abs(index % queueLen)
+    if index >= queueLen
+        Return index % arrayLen
+    Return index
+
+Int QSize = 3
+Int activeIndex = 2
+Int usableIndex = FitIndex(activeIndex+1, QSize) // output: 0
+```
+
+Now to reassess the previously defined ranges of the “queued” and “previous” sections. They are found relative to the “active” index, which means they are highly likely to go out of range. So to fix this we can simply wrap them back to the start.
+
+`Previous index range = [FitIndex(active index - 1), FitIndex(active index - previous size)]` \
+`Queue index range = [FitIndex(active index + 1), FitIndex(active index + queue size)]`
+
+![ActionQueueExample2](https://github.com/user-attachments/assets/d88e18e4-8439-4a62-b858-7493a504da15)
+
+Now the indexes of the actions in the sections can be found by wrapping the indexes that go out of range.
+
+### Action Refs
+Action Queue holds three public variables referred to as “action refs”. These “action refs” are `previousAction`, `activeAction`, and `queuedAction`. They are public copies to allow for easy access to these variables. 
+
+`previousAction` is the most recent action added to the “previous” section, and `queuedAction` is the next action to become “active”.
+
+```
+UpdateActionRefs()
+    If preserveSize > 0
+        previousAction = actionArray[FitIndex(activeIndex - 1, actionArray.length)].action
+    Else 
+        previousAction = Action()
+    activeAction = actionArray[activeIndex].action
+    If queueSize > 0 and lastQueuedIndex > -1
+        queuedAction = actionArray[FitIndex(activeIndex + 1, actionArray.length)].action
+    Else
+        queuedAction = Action()
+```
+
+### Is An Action In A Section?
+Another useful function is to find if an index is in a section (“queued” or “previous”). A section is simply a set of indexes within the queue. So to find if an index is in a section we can use the range of the section.
+
+```
+// start = the starting index of the range within the queue
+// end = the ending index of the range within the queue
+
+IndexInRange(index, start, end)
+    Index = FitIndex(index)
+    start = FitIndex(start)
+    end = FitIndex(end)
+    If start == end
+        Return (index == start)
+    If start < end
+        Return (index >= start) and (index <= end) // if index is inside start to end index
+    Else
+        Return (index >= start) or (index <= end) // if index is outside start to end index
+
+bool indexInQueue = IndexInRange(FitIndex(index), FitIndex(activeIndex + 1), FitIndex(activeIndex + queueSize))
+```
+
+This method takes advantage of the fact that all indexes are within the queue. Due to this fact, if the starting index is greater than the ending index, then the range wraps around the queue.
+
+A more generic version of this method would be as follows.
+
+```
+// find if an index is within a range of indexes, in an array
+IndexInRange(index, rangeStart, rangeLen, arrayLen)
+    If (rangeStart + rangeLen - 1) < (arrayLen - 1) // if the range does not wrap
+        Return (index >= rangeStart AND index <= rangeStart + rangeLen - 1)
+    Else
+        Return (index >= rangeStart AND index < arrayLen - 1) OR
+            (index <= (rangeStart + rangeLen - 1) % arrayLen AND index >= 0)
+
+bool itemInQueue = IndexInRange(itemIndex, activeIndex+1, queueSize, arraySize);
+
+// itemIndex = the index of the item we are testing
+// activeIndex+1 = the starting index of the queue section
+// queueSize = the length of the queue section
+// arraySize = the length of the action queue
+```
+
+### Adding Actions To The Queue
+```
+QueueAction(Action action, bool replacement)
+    If arraySize <= 0
+        Return
+    If arraySize == 1
+        If lastQueuedIndex != -1
+            If replacement
+                Return
+        Int index = FitIndex(activeIndex, actionArray.length)
+        actionArray[index] = ActionWrapper(action, true)
+        lastQueuedIndex = index
+    Int queueIndex = if lastQueuedIndex != -1 : lastQueuedIndex + 1, else activeIndex + 1
+    queueIndex = FitIndex(queueIndex, actionArray.length)
+    Int start = FitIndex(activeIndex + 1, actionArray.length)
+    Int end = FitIndex(activeIndex + queueSize, actionArray.length)
+    If IndexInRange(queueIndex, start, end)
+        actionArray[queueIndex] = ActionWrapper(action, true)
+        lastQueuedIndex = queueIndex
+    Else 
+        If replacement != true
+            Return 
+        actionArray[end] = ActionWrapper(action, true)
+        lastQueuedIndex = end
+    UpdateActionRefs()
+```
+
+Actions are added to the queue by overriding the data at one position with the new data. The place to add the data is at the `lastQueuedIndex`, as long as it is not -1, in which case it is added after `activeIndex`. When the `lastQueuedIndex` reaches the ending index of the “queued” section, replacement will need to be enabled to handle queue overflow as there is no more space in the “queued” section. The strict use of the sections make it so that new actions are only added to the “queued” section and do not overflow into the “previous” section.
+
+Queue overflow, when more actions are queued than the size of the “queued” section, may be handled a few ways but will be dependent on desired behavior. The last action in the “queued” section may be overridden by any new inputs, allowing the player to change that action. New inputs may be ignored. This will depend on what should happen in your game if too many actions are queued. In the above code overflow is handled by overriding the last action in the “queued” section if the “replacement” argument is set to true.
+
+#### Action Wrapper
+When Actions are added they are placed within a wrapper struct that adds extra data in association to that Action that is used internally by the Action Queue. The wrapper holds the action and a bool “valid”, which indicates if that action in the queue has been set. This is primarily used in `Resize()`.
+
+### Progressing The Queue
+```
+ProgressQueue()
+    If activeIndex == lastQueuedIndex or lastQueuedIndex == -1
+        Return Action()
+    activeIndex = FitIndex(activeIndex + 1, actionArray.length)
+    If activeIndex == lastQueuedIndex
+        lastQueuedIndex = -1
+    UpdateActionRefs()
+    Return actionArray[activeIndex].action
+```
+
+### Get Sections
+```
+GetPreviousArray()
+    If preserveSize < 0
+        Return array<ActionWrapper>()
+        array<ActionWrapper> returnArray = array<ActionWrapper>()
+    If preserveSize == 1
+        returnArray.add(actionArray[FitIndex(activeIndex - 1, actionArray.length)])
+    Else 
+        For int i = 0; i < preserveSize; ++i
+            Int preserveIndex = FitIndex(activeIndex - 1 - i, actionArray.length)
+            If preserveIndex == FitIndex(activeIndex+(queueSize-1), actionArray.length)
+                returnArray.add(actionArray[preserveIndex])
+            Else
+                Break 
+    Return returnArray
+
+GetQueuedArray()
+    If queuedSize < 0 
+        Return array<ActionWrapper>()
+    array<ActionWrapper> returnArray = array<ActionWrapper>()
+    If queuedSize == 1
+        returnArray.add(actionArray[FitIndex(activeIndex + 1, actionArray.length)])
+    Else
+        If lastQueuedIndex == FitIndex(activeIndex + 1, actionArray.length)
+            Return returnArray
+        For int i = 0; i < queuedSize; ++i
+            Int queueIndex = FitIndex(activeIndex + 1 + i, actionArray.length)
+            returnArray.add(actionArray[queueIndex])
+            If queueIndex == lastQueuedIndex
+                Break 
+    Return returnArray
+```
+
+`GetQueuedActions()` and `GetPreviousActions()` \
+Copy the above matching function but return an array of Actions rather than an array of Action Wrappers. Actions Wrappers should stay internal to Action Queue.
+
+### Resize
+```
+Resize(int newPreserveSize, int newQueueSize)
+    lastQueuedIndex = -1
+    array<ActionWrapper> tempArray = array<ActionWrapper>()
+    array<ActionWrapper> prevArray = GetPreviousArray()
+    For int i = 0; i < prevArray.length; ++i
+        If i != newPreserveSize
+            If prevArray[i].valid
+                tempArray[newQueueSize + 1 + i] = prevArray[i]
+        Else 
+            Break 
+    tempArray[0] = actionArray[activeIndex]
+    array<ActionWrapper> qArray = GetQueuedArray()
+    For int i = 0; i < qArray.length; ++i
+        If i != newQueueSize
+            If qArray[i].valid
+                tempArray[i + 1] = prevArray[i]
+                lastQueuedIndex = i + 1
+            Else
+                Break
+    preserveSize = newPreserveSize
+    queuedSize = newQueueSize
+    activeIndex = 0
+    actionArray = tempArray
+    UpdateActionRefs()
+```
+
+### Summary
+ - Use a fixed size array as a queue
+ - Implement index wrapping
+ - Store the index of the active action
+ - Use the active index and section sizes to determine the states of the surrounding actions
+ - Utilize the queue in character class to manage the order of their actions based on first in first out
+   - This not only manages incoming actions but holds previous actions
+
+## Conclusion
+By using a well defined key system along with a search tree data structure, attacks may be stored in a way that allows for different paths to be taken based on different inputs and character context, resulting in unique attack chains. 
+
+Once the right attack is selected it can be passed to a custom queue that will help in outputting the attacks at the right time and correct order. The queue can also provide data from past actions to further help provide context when choosing the next attack. 
+
+![ActionManagement](https://github.com/user-attachments/assets/6487c442-eff6-4bc4-8f99-0feeb56454ee)
+
+Ultimately this setup will allow for a customizable system that will allow a wide variety of combat systems, from simple three attack combos to input heavy button masher combos.
