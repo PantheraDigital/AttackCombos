@@ -259,7 +259,7 @@ If no match: Check for adjusted input key
    - If a variable is optional a character still news to occupy that space
    - Internally signal the key may match any value in that position
 
-![ActionContainer](https://github.com/user-attachments/assets/bd4eff54-aa7f-4398-9f33-f79a35d4a535)
+![AttackContainer drawio(1)](https://github.com/user-attachments/assets/b9b3633f-3d47-4856-b101-b588f5994add)
 
 ## Action Queue
 The Action Queue is a data structure that serves to take in actions from the player as they are input, then output them in the same order, when they are allowed. This is to prevent any actions from being skipped or cut short when they should not be. The queue also allows the parent object to view the different actions in the queue based on sections (“queued” - ready to be performed, “current” - the action being performed, and “previous” - actions that have been performed) so that they may be used when determining the context of new actions. 
@@ -268,7 +268,7 @@ Actions being “allowed” to play will be determined by game logic but as an e
 
 As an example, if the player inputs an attack it will be added to the “queued” section. The parent object will see that there is no current action being played and immediately progress the queue, placing the attack in the “current” slot and play it. The player then inputs another attack while the current one is playing. This attack is added to the queue, but the parent object sees the current action is not done so it waits. When the current attack finishes the parent object sees an action is in the queue and progresses the queue, moving the first attack to the “previous” section and the second to the “current” slot. Then it plays the new current action. This prevents inputs from being ignored and forcing the player to wait for every action to finish before inputting a new action. 
 
-![ActionQueue](https://github.com/user-attachments/assets/0f4d774d-8dbe-4a0f-a152-6683c20af175)
+![ActionQueue drawio](https://github.com/user-attachments/assets/3056b36d-e87c-4942-8c95-ebd3555e9376)
 
 ### How Does It Work?
 The action queue is a rather straight forward queue data structure that acts as the name implies, with some modified behavior to keep the queue a fixed size along with the addition of sections within the queue that signify the state of an action within the queue. The “sections”/”states of an action” in the queue are “active”, “queued”, and “previous”. 
@@ -279,7 +279,7 @@ Only a single action can be “active” at any given time. This indicates the a
 
 Queue progression would look like this:
 
-![ActionQueueExample1](https://github.com/user-attachments/assets/49eb9117-9672-4ec8-9b59-948286bd1f78)
+![ActionQueueExample1](https://github.com/user-attachments/assets/ffcced0f-4144-48ff-8e85-6bc19ef3ca57)
 
 Items in the queue do not move, rather an index is incremented that indicates the “active” action. Using the active index the other sections of the queue can be calculated simply using the size of those sections.
 
@@ -323,7 +323,7 @@ Now to reassess the previously defined ranges of the “queued” and “previou
 `Previous index range = [FitIndex(active index - 1), FitIndex(active index - previous size)]` \
 `Queue index range = [FitIndex(active index + 1), FitIndex(active index + queue size)]`
 
-![ActionQueueExample2](https://github.com/user-attachments/assets/d88e18e4-8439-4a62-b858-7493a504da15)
+![ActionQueueExample2](https://github.com/user-attachments/assets/7cff3fd4-e170-49d2-ab94-cb70e4684387)
 
 Now the indexes of the actions in the sections can be found by wrapping the indexes that go out of range.
 
@@ -511,6 +511,6 @@ By using a well defined key system along with a search tree data structure, atta
 
 Once the right attack is selected it can be passed to a custom queue that will help in outputting the attacks at the right time and correct order. The queue can also provide data from past actions to further help provide context when choosing the next attack. 
 
-![ActionManagement](https://github.com/user-attachments/assets/6487c442-eff6-4bc4-8f99-0feeb56454ee)
+![ActionManagement drawio](https://github.com/user-attachments/assets/a16a314a-b1d8-4d7f-82a7-d04a58ba5648)
 
 Ultimately this setup will allow for a customizable system that will allow a wide variety of combat systems, from simple three attack combos to input heavy button masher combos.
